@@ -28,6 +28,7 @@ class Config:
 
             # 加载 ChatBot 提示信息
             self.chatbot_prompt = config.get('chatbot_prompt', '')
+            self.chatbot_reflector_prompt = config.get('chatbot_reflector_prompt', 'prompts/chatbot_reflector.txt')
 
             # 加载内容格式化提示和助手提示
             self.content_formatter_prompt = config.get('content_formatter_prompt', '')

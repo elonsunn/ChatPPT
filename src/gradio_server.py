@@ -23,7 +23,7 @@ os.environ["LANGCHAIN_PROJECT"] = "ChatPPT"
 
 # 实例化 Config，加载配置文件
 config = Config()
-chatbot = ChatBot(config.chatbot_prompt)
+chatbot = ChatBot(config.chatbot_prompt, config.chatbot_reflector_prompt)
 content_formatter = ContentFormatter(config.content_formatter_prompt)
 content_assistant = ContentAssistant(config.content_assistant_prompt)
 image_advisor = ImageAdvisor(config.image_advisor_prompt)
@@ -75,8 +75,9 @@ def generate_contents(message, history):
         user_requirement = "需求如下:\n" + "\n".join(texts)
         LOG.info(user_requirement)
 
-        # 与聊天机器人进行对话，生成幻灯片内容
-        slides_content = chatbot.chat_with_history(user_requirement)
+        # 通过 LangGraph 反思循环（3-7 轮）生成高质量幻灯片内容
+        # 中间轮次不写入 ChatHistory，仅保留最终优化版本
+        slides_content = chatbot.chat_with_reflection(user_requirement)
 
         return slides_content
     except Exception as e:
