@@ -1,7 +1,73 @@
+import io
 import os
+import xml.etree.ElementTree as ET
+import zipfile
 from pptx import Presentation
 from utils import remove_all_slides
 from logger import LOG  # 引入日志模块
+
+
+def _fix_app_xml(pptx_path: str, slides) -> None:
+    """修正保存后 PPTX 中 docProps/app.xml 的幻灯片数量元数据，防止 PowerPoint 报错。"""
+    NS_APP = 'http://schemas.openxmlformats.org/officeDocument/2006/extended-properties'
+    NS_VT  = 'http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'
+
+    slide_count = len(slides)
+    slide_titles = []
+    for s in slides:
+        if hasattr(s, 'content'):
+            slide_titles.append(s.content.title or '')
+        else:
+            ts = s.shapes.title
+            slide_titles.append(ts.text if ts else '')
+
+    def tag(ns, name):
+        return f'{{{ns}}}{name}'
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(pptx_path, 'r') as zin, \
+         zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == 'docProps/app.xml':
+                ET.register_namespace('', NS_APP)
+                ET.register_namespace('vt', NS_VT)
+                root = ET.fromstring(data)
+
+                for name, val in [('Slides', str(slide_count)), ('Notes', '0')]:
+                    el = root.find(tag(NS_APP, name))
+                    if el is None:
+                        el = ET.SubElement(root, tag(NS_APP, name))
+                    el.text = val
+
+                for key in ('HeadingPairs', 'TitlesOfParts'):
+                    el = root.find(tag(NS_APP, key))
+                    if el is not None:
+                        root.remove(el)
+
+                hp = ET.SubElement(root, tag(NS_APP, 'HeadingPairs'))
+                vec_hp = ET.SubElement(hp, tag(NS_VT, 'vector'))
+                vec_hp.set('size', '4')
+                vec_hp.set('baseType', 'variant')
+                for text, count in [('Theme', '1'), ('Slide Titles', str(slide_count))]:
+                    v = ET.SubElement(vec_hp, tag(NS_VT, 'variant'))
+                    ET.SubElement(v, tag(NS_VT, 'lpstr')).text = text
+                    v = ET.SubElement(vec_hp, tag(NS_VT, 'variant'))
+                    ET.SubElement(v, tag(NS_VT, 'i4')).text = count
+
+                tp = ET.SubElement(root, tag(NS_APP, 'TitlesOfParts'))
+                vec_tp = ET.SubElement(tp, tag(NS_VT, 'vector'))
+                vec_tp.set('size', str(slide_count + 1))
+                vec_tp.set('baseType', 'lpstr')
+                ET.SubElement(vec_tp, tag(NS_VT, 'lpstr')).text = 'Office Theme'
+                for t in slide_titles:
+                    ET.SubElement(vec_tp, tag(NS_VT, 'lpstr')).text = t
+
+                data = ET.tostring(root, encoding='UTF-8', xml_declaration=True)
+            zout.writestr(item, data)
+
+    with open(pptx_path, 'wb') as f:
+        f.write(buf.getvalue())
 
 # 生成 PowerPoint 演示文稿
 def generate_presentation(powerpoint_data, template_path: str, output_path: str):
